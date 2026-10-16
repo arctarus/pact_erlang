@@ -17,7 +17,8 @@ all() ->
         cleanup_plugins_without_plugins,
         interaction_contents_with_core_content_type,
         interaction_contents_with_invalid_json,
-        write_pact_file_without_mock_server
+        write_pact_file_without_mock_server,
+        cleanup_twice_after_write
     ].
 
 with_specification_writes_v4_pact(Config) ->
@@ -76,6 +77,22 @@ interaction_contents_with_invalid_json(_Config) ->
 write_pact_file_without_mock_server(Config) ->
     Dir = list_to_binary(?config(priv_dir, Config)),
     ?assertEqual({error, 3}, pactffi_nif:write_pact_file(1, Dir, 0)).
+
+cleanup_twice_after_write(Config) ->
+    PactPid = pact:v4(<<"plugin_consumer">>, <<"cleanup_provider">>),
+    {ok, _Port} = pact:interaction(PactPid, #{
+        upon_receiving => <<"a request to cleanup">>,
+        with_request => #{method => <<"GET">>, path => <<"/cleanup">>},
+        will_respond_with => #{status => 200}
+    }),
+    Dir = list_to_binary(?config(priv_dir, Config)),
+    ok = pact:write(PactPid, Dir),
+    ?assertEqual(undefined, pact_ref_server:get_pact_ref(PactPid)),
+    ?assertEqual(undefined, pact_ref_server:get_mock_server_port(PactPid)),
+    %% Calls after the pact was written keep returning what they returned before
+    ?assertEqual({error, not_matched}, pact:verify(PactPid)),
+    ?assertEqual(ok, pact:write(PactPid, Dir)),
+    ?assertEqual(ok, pact:cleanup(PactPid)).
 
 %% Internal functions
 
